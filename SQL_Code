@@ -1,1 +1,506 @@
-This is the code
+1
+/*Overall trending by year*/
+WITH TIMECTE AS (
+SELECT
+  *,
+  EXTRACT(YEAR FROM OrderDate) AS year
+FROM `project-437106.retail_sales.Orders`
+)
+SELECT
+  year AS Year,
+  FORMAT("%'d",CAST(SUM(Sales) AS INT)) AS Total_sales,
+  ROUND(SUM(Sales)*100/(LAG(SUM(Sales),1) OVER (ORDER BY Year)),2) as Sales_YoY,
+  SUM(Quantity) AS Total_quantities,
+  ROUND(SUM(Quantity)*100/(LAG(SUM(Quantity),1) OVER (ORDER BY Year)),2) as Quantities_YoY,
+  COUNT(DISTINCT(OrderID)) AS No_of_orders,
+  ROUND(COUNT(DISTINCT(OrderID))*100/(LAG(COUNT(DISTINCT(OrderID)),1) OVER (ORDER BY Year)),2) as NoOrders_YoY
+FROM
+  TIMECTE
+GROUP BY 1
+ORDER BY 1
+
+-------------------------------------------------------------------------------------------------
+/*Overall trending by month*/
+WITH TIMECTE AS (
+SELECT
+  *,
+  EXTRACT(YEAR FROM OrderDate) AS Year,
+  EXTRACT(MONTH FROM OrderDate) AS Month
+  FROM `project-437106.retail_sales.Orders`
+)
+SELECT
+  Month,
+  FORMAT("%'d",CAST(SUM(CASE WHEN TIMECTE.Year=2015 THEN Sales END) AS INT)) AS TS_2015,
+  FORMAT("%'d",CAST(SUM(CASE WHEN TIMECTE.Year=2018 THEN Sales END) AS INT)) AS TS_2018,
+  FORMAT("%'d",CAST(SUM(CASE WHEN TIMECTE.Year=2019 THEN Sales END) AS INT)) AS TS_2019,
+  FORMAT("%'d",CAST(SUM(CASE WHEN TIMECTE.Year=2020 THEN Sales END) AS INT)) AS TS_2020,
+  FORMAT("%'d",CAST(SUM(CASE WHEN TIMECTE.Year=2021 THEN Sales END) AS INT)) AS TS_2021
+FROM
+  TIMECTE
+GROUP BY 1
+ORDER BY 1
+
+-------------------------------------------------------------------------------------------------
+2
+/*Overall trending by category and year*/
+WITH TIMECTE AS (
+SELECT
+  *,
+  EXTRACT(YEAR FROM OrderDate) AS year
+FROM `project-437106.retail_sales.Orders`
+)
+SELECT
+  c.Category,
+  t.year AS Year,
+  FORMAT("%'d",CAST(SUM(t.Sales) AS INT)) AS Total_sales,
+  SUM(t.Quantity) AS Total_quantities,
+  COUNT(DISTINCT(t.OrderID)) AS No_of_orders
+FROM
+  TIMECTE t
+JOIN `project-437106.retail_sales.Products`p USING (ProductID)
+JOIN `project-437106.retail_sales.Categories`c USING (CategoryID)
+WHERE Year IN (2018, 2019, 2021)
+GROUP BY 1,2
+ORDER BY 1,2
+
+-------------------------------------------------------------------------------------------------
+/*Overall trending by category and month - The season is stable year-round*/
+WITH TIMECTE AS (
+SELECT
+  *,
+  EXTRACT(MONTH FROM OrderDate) AS month,
+  EXTRACT(YEAR FROM OrderDate) AS year
+FROM `project-437106.retail_sales.Orders`
+)
+SELECT
+  c.Category,
+  t.month AS Month,
+  FORMAT("%'d",CAST(SUM(t.Sales) AS INT)) AS Total_sales,
+  SUM(t.Quantity) AS Total_quantities,
+  COUNT(DISTINCT(t.OrderID)) AS No_of_orders
+FROM
+  TIMECTE t
+JOIN `project-437106.retail_sales.Products`p USING (ProductID)
+JOIN `project-437106.retail_sales.Categories`c USING (CategoryID)
+WHERE t.year IN (2018, 2019, 2021)
+GROUP BY 1,2
+ORDER BY 1,2
+
+-------------------------------------------------------------------------------------------------
+/*Overall trending by category and month - The seasons fluctuate annually*/
+WITH TIMECTE AS (
+SELECT
+  *,
+  LEFT(CAST(DATE_TRUNC(OrderDate,MONTH) AS STRING),7) AS month
+FROM `project-437106.retail_sales.Orders`
+)
+SELECT
+  c.Category,
+  t.month AS Month,
+  FORMAT("%'d",CAST(SUM(t.Sales) AS INT)) AS Total_sales,
+  SUM(Quantity) AS Total_quantities,
+  COUNT(DISTINCT(t.OrderID)) AS No_of_orders
+FROM
+  TIMECTE t
+JOIN `project-437106.retail_sales.Products`p USING (ProductID)
+JOIN `project-437106.retail_sales.Categories`c USING (CategoryID)
+WHERE LEFT(Month,4) IN ('2018', '2019', '2021')
+GROUP BY 1,2
+ORDER BY 1,2
+
+-------------------------------------------------------------------------------------------------
+3
+/*Distribution of sales across product categories*/
+WITH TIMECTE AS (
+SELECT
+  c.Category,
+  EXTRACT(YEAR FROM o.OrderDate) AS Year,
+  o.Sales
+FROM
+  `project-437106.retail_sales.Orders`o
+JOIN `project-437106.retail_sales.Products`p USING (ProductID)
+JOIN `project-437106.retail_sales.Categories`c USING (CategoryID)
+),
+SUMCTE AS (
+SELECT
+  Category,
+  SUM(CASE WHEN Year=2018 THEN Sales END) AS Total_sales_2018,
+  SUM(CASE WHEN Year=2019 THEN Sales END) AS Total_sales_2019,
+  SUM(CASE WHEN Year=2021 THEN Sales END) AS Total_sales_2021
+FROM TIMECTE
+GROUP BY 1
+)
+SELECT
+  Category,
+  FORMAT("%'d",CAST(Total_sales_2018 AS INT)) AS Total_sales_2018,
+  FORMAT("%'d",CAST(Total_sales_2019 AS INT)) AS Total_sales_2019,
+  FORMAT("%'d",CAST(Total_sales_2021 AS INT)) AS Total_sales_2021,
+  ROUND(Total_sales_2018*100/(SUM(Total_sales_2018) OVER()),1) AS Proportion_2018,
+  ROUND(Total_sales_2019*100/(SUM(Total_sales_2019) OVER()),1) AS Proportion_2019,
+  ROUND(Total_sales_2021*100/(SUM(Total_sales_2021) OVER()),1) AS Proportion_2021
+FROM SUMCTE
+ORDER BY 7 DESC
+
+-------------------------------------------------------------------------------------------------
+4
+/*Distribution of sales across customer segment, Year=2021*/
+WITH CLASSIFY AS (
+SELECT
+  CategoryID,
+  Category,
+  CASE
+    WHEN Category LIKE '%Women%' OR Category LIKE '%Ladies%' THEN 'Woman'
+    WHEN Category LIKE '%Chidren%' OR Category LIKE '%Baby%' THEN 'Children'
+    WHEN Category LIKE '%Men%' THEN 'Men'
+    ELSE 'General'
+  END AS Target_Customer
+FROM
+  `project-437106.retail_sales.Categories`
+),
+TIMECTE AS (
+SELECT
+  c.Target_Customer,
+  EXTRACT (YEAR FROM o.OrderDate) AS Year,
+  o.Sales AS Sales
+FROM
+  `project-437106.retail_sales.Orders`o
+JOIN `project-437106.retail_sales.Products`p USING (ProductID)
+JOIN CLASSIFY c USING (CategoryID)
+),
+SUMCTE AS (
+SELECT
+  Target_Customer,
+  SUM(CASE WHEN Year=2018 THEN Sales END) AS Total_sales_2018,
+  SUM(CASE WHEN Year=2019 THEN Sales END) AS Total_sales_2019,
+  SUM(CASE WHEN Year=2021 THEN Sales END) AS Total_sales_2021
+FROM TIMECTE
+GROUP BY 1
+)
+SELECT
+  Target_Customer,
+  FORMAT("%'d",CAST(Total_sales_2018 AS INT)) AS Total_sales_2018,
+  FORMAT("%'d",CAST(Total_sales_2019 AS INT)) AS Total_sales_2019,
+  FORMAT("%'d",CAST(Total_sales_2021 AS INT)) AS Total_sales_2021,
+  ROUND(Total_sales_2018*100/(SUM(Total_sales_2018) OVER()),1) AS Proportion_2018,
+  ROUND(Total_sales_2019*100/(SUM(Total_sales_2019) OVER()),1) AS Proportion_2019,
+  ROUND(Total_sales_2021*100/(SUM(Total_sales_2021) OVER()),1) AS Proportion_2021
+FROM SUMCTE
+ORDER BY 7 DESC
+
+-------------------------------------------------------------------------------------------------
+5
+/*Sales by suppliers*/
+WITH TIMECTE AS (
+SELECT
+  *,
+  EXTRACT(YEAR FROM OrderDate) AS year
+FROM `project-437106.retail_sales.Orders`
+)
+SELECT
+  s.Supplier,
+  FORMAT("%'d",CAST(SUM(t.Sales) AS INT)) AS Total_sales,
+  COUNT(DISTINCT(t.OrderID)) AS No_of_orders,
+  (2021-MIN(t.year)+1) AS Seniority,
+  COUNT(DISTINCT(p.CategoryID)) AS Diversity_of_Cate,
+  COUNT(DISTINCT(p.ProductID)) AS Diversity_of_Product
+FROM
+  TIMECTE t
+JOIN `project-437106.retail_sales.Products`p USING (ProductID)
+JOIN `project-437106.retail_sales.Suppliers`s USING (SupplierID)
+GROUP BY 1
+ORDER BY 3 DESC
+
+-------------------------------------------------------------------------------------------------
+6
+/*Test if customer prefer weekend to weekday*/
+WITH TIMECTE AS
+(SELECT
+  *,
+  EXTRACT(DAYOFWEEK FROM OrderDate) AS Day_of_week,
+  CASE
+    WHEN EXTRACT(DAYOFWEEK FROM OrderDate) IN (1,7) THEN 'Weekend'
+    ELSE 'Weekday'
+  END AS Type_of_day
+FROM 
+  `project-437106.retail_sales.Orders`
+)
+SELECT
+  Type_of_day,
+  COUNT(DISTINCT(OrderID))/COUNT(DISTINCT(Day_of_week)) AS Average_no_of_orders,
+  ROUND(AVG(Sales),2) AS Average_sales_value
+FROM
+  TIMECTE
+GROUP BY 1
+
+-------------------------------------------------------------------------------------------------
+/*Top 10 customers sort by total sales*/
+SELECT
+  CustomerID,
+  FORMAT("%'d",CAST(SUM(Sales) AS INT)) AS Total_sales,
+  SUM(Quantity) AS Total_quantities,
+  COUNT(DISTINCT(OrderID)) AS No_of_orders,
+  ROUND(SUM(Sales)/COUNT(DISTINCT(OrderID)),2) AS Average_value
+FROM
+  `project-437106.retail_sales.Orders`
+GROUP BY 1
+ORDER BY SUM(Sales) DESC
+LIMIT 10
+
+-------------------------------------------------------------------------------------------------
+/*Customers with total sales > $30,000*/
+SELECT
+  CustomerID,
+  FORMAT("%'d",CAST(SUM(Sales) AS INT)) AS Total_sales,
+  SUM(Quantity) AS Total_quantities,
+  COUNT(DISTINCT(OrderID)) AS No_of_orders,
+  ROUND(SUM(Sales)/COUNT(DISTINCT(OrderID)),2) AS Average_value
+FROM
+  `project-437106.retail_sales.Orders`
+GROUP BY 1
+HAVING SUM(Sales)>30000
+ORDER BY SUM(Sales) DESC
+
+-------------------------------------------------------------------------------------------------
+/*Top seniority customers*/
+WITH TIMECTE AS (
+SELECT
+  *,
+  EXTRACT(YEAR FROM OrderDate) AS Year
+FROM
+  `project-437106.retail_sales.Orders`
+)
+SELECT
+  CustomerID,
+  (2021-MIN(t.Year)+1) AS Seniority
+FROM
+  TIMECTE T
+GROUP BY 1 HAVING MAX(t.Year)=2021
+ORDER BY 2 DESC
+
+-------------------------------------------------------------------------------------------------
+/*Top 3 customers in each country*/
+WITH CTE AS (
+SELECT
+  s.SupplierCountry,
+  o.CustomerID,
+  FORMAT("%'d",CAST(SUM(Sales) AS INT)) AS Total_sales,
+  SUM(Quantity) AS Total_quantities,
+  COUNT(DISTINCT(OrderID)) AS No_of_orders,
+  RANK() OVER (PARTITION BY s.SupplierCountry ORDER BY SUM(Sales) DESC) AS Rank_by_Sales
+FROM
+  `project-437106.retail_sales.Orders`o
+JOIN `project-437106.retail_sales.Products`p USING (ProductID)
+JOIN `project-437106.retail_sales.Suppliers`s USING (SupplierID)
+GROUP BY 1, 2
+)
+SELECT
+  *
+FROM CTE
+WHERE Rank_by_Sales<=3
+
+-------------------------------------------------------------------------------------------------
+7
+/*Multi-item orders*/
+WITH CTE AS (
+SELECT
+  OrderID,
+  Category
+FROM
+  `project-437106.retail_sales.Orders`o
+JOIN `project-437106.retail_sales.Products`p USING (ProductID)
+JOIN `project-437106.retail_sales.Categories`c USING (CategoryID)
+ORDER BY 1, 2
+),
+CTE_COM AS (
+SELECT
+  c.OrderID,
+  STRING_AGG(DISTINCT(c.Category), ", ") AS Combining_of_categories
+FROM
+  CTE c
+JOIN `project-437106.retail_sales.Orders`o USING (OrderID)
+GROUP BY 1 HAVING COUNT(DISTINCT(o.ProductID))>1
+)
+SELECT
+  cc.Combining_of_categories,
+  COUNT(OrderID) AS Count
+FROM CTE_COM cc
+GROUP BY 1
+ORDER BY 2 DESC
+
+-------------------------------------------------------------------------------------------------
+/*Multi-item orders - cont*/
+WITH CTE AS(
+SELECT
+  OrderID
+FROM
+  `project-437106.retail_sales.Orders`
+GROUP BY 1 HAVING COUNT(DISTINCT(ProductID))>1
+)
+SELECT
+  CTE.OrderID,
+  COUNT(OrderID) OVER (PARTITION BY CTE.OrderID) AS Number_of_product,
+  p.Product,
+  c.Category
+FROM
+  `project-437106.retail_sales.Orders`o
+JOIN CTE USING (OrderID)
+JOIN `project-437106.retail_sales.Products`p USING (ProductID)
+JOIN `project-437106.retail_sales.Categories`c USING (CategoryID)
+
+-------------------------------------------------------------------------------------------------
+/*Max and min value of an order*/
+SELECT
+  MAX(Sales) AS Max_sales,
+  MIN(Sales) AS Min_sales
+FROM
+  `project-437106.retail_sales.Orders`
+
+-------------------------------------------------------------------------------------------------
+/*Classify orders*/
+WITH CTE AS (
+SELECT
+  OrderID,
+  SUM(Sales) AS Total_sales,
+  CASE
+    WHEN SUM(Sales)<=0 THEN 'N/A'
+    WHEN SUM(Sales)<1000 THEN 'A. Low Value'
+    WHEN SUM(Sales)<2000 THEN 'B. Medium Value'
+    ELSE 'C. High Value'
+  END AS Classify
+FROM
+  `project-437106.retail_sales.Orders`
+GROUP BY 1)
+SELECT
+  Classify,
+  COUNT(OrderID) AS Number_orders
+FROM
+  CTE
+GROUP BY 1
+ORDER BY 1
+
+-------------------------------------------------------------------------------------------------
+8
+/*Top 5 products in each category*/
+WITH CTE AS(
+SELECT
+  c.Category,
+  p.Product,
+  FORMAT("%'d",CAST(SUM(o.Sales) AS INT)) AS Total_sales,
+  SUM(o.Quantity) AS Total_quantities,
+  COUNT(DISTINCT(o.OrderID)) AS No_of_orders,
+  COUNT(DISTINCT(s.SupplierID)) AS No_of_Suppliers,
+  RANK() OVER (PARTITION BY c.Category ORDER BY SUM(o.Sales) DESC) AS Rank_by_Sales
+FROM
+  `project-437106.retail_sales.Orders`o
+JOIN `project-437106.retail_sales.Products`p USING (ProductID)
+JOIN `project-437106.retail_sales.Categories`c USING (CategoryID)
+JOIN `project-437106.retail_sales.Suppliers`s USING (SupplierID)
+GROUP BY 1,2
+)
+SELECT
+  *
+FROM CTE
+WHERE Rank_by_Sales <=5
+
+-------------------------------------------------------------------------------------------------
+/*Top suppliers in each category*/
+SELECT
+  c.Category,
+  s.Supplier,
+  FORMAT("%'d",CAST(SUM(o.Sales) AS INT)) AS Total_sales,
+  COUNT(DISTINCT(o.OrderID)) AS No_of_orders,
+  COUNT(DISTINCT(p.ProductID)) AS No_of_Products,
+  RANK() OVER (PARTITION BY c.Category ORDER BY SUM(o.Sales) DESC) AS Rank_by_Sales
+FROM
+  `project-437106.retail_sales.Orders`o
+JOIN `project-437106.retail_sales.Products`p USING (ProductID)
+JOIN `project-437106.retail_sales.Suppliers`s USING (SupplierID)
+JOIN `project-437106.retail_sales.Categories`c USING (CategoryID)
+GROUP BY 1,2
+
+-------------------------------------------------------------------------------------------------
+9
+/*Top 10 products by sales*/
+SELECT
+  ProductID,
+  Product,
+  Category,
+  FORMAT("%'d",CAST(SUM(Sales) AS INT)) AS Total_sales,
+  SUM(Quantity) AS Total_quantities,
+  COUNT(DISTINCT(OrderID)) AS No_of_orders
+FROM
+  `project-437106.retail_sales.Orders`
+JOIN `project-437106.retail_sales.Products` USING (ProductID)
+JOIN `project-437106.retail_sales.Categories` USING (CategoryID)
+GROUP BY 1, 2, 3
+ORDER BY SUM(Sales) DESC
+LIMIT 10
+
+-------------------------------------------------------------------------------------------------
+/*Top 10 products by sales in 2021*/
+SELECT
+  ProductID,
+  Product,
+  Category,
+  FORMAT("%'d",CAST(SUM(Sales) AS INT)) AS Total_sales,
+  SUM(Quantity) AS Total_quantities,
+  COUNT(DISTINCT(OrderID)) AS No_of_orders
+FROM
+  `project-437106.retail_sales.Orders`
+JOIN `project-437106.retail_sales.Products` USING (ProductID)
+JOIN `project-437106.retail_sales.Categories` USING (CategoryID)
+WHERE EXTRACT(YEAR FROM OrderDate)=2021
+GROUP BY 1, 2, 3
+ORDER BY SUM(Sales) DESC
+LIMIT 10
+
+-------------------------------------------------------------------------------------------------
+/*Top 5 highest-cost products*/
+SELECT
+  ProductID,
+  Product,
+  Category,
+  FORMAT("%'d",CAST(AVG(Sales) AS INT)) AS Average_sales,
+  FORMAT("%'d",CAST(AVG(Costs) AS INT)) AS Average_costs,
+  FORMAT("%'d",CAST(AVG(Discount) AS INT)) AS Average_discount,
+  ROUND(AVG(Freight),2) AS Average_freight
+FROM
+  `project-437106.retail_sales.Orders`
+JOIN `project-437106.retail_sales.Products` USING (ProductID)
+JOIN `project-437106.retail_sales.Categories` USING (CategoryID)
+GROUP BY 1, 2, 3
+ORDER BY AVG(Costs) DESC
+LIMIT 5
+
+-------------------------------------------------------------------------------------------------
+/*Products with Profit < 5%*Sales*/
+SELECT
+  ProductID,
+  Product,
+  Category,
+  ROUND(AVG(Profit),2) AS Profit,
+  ROUND(AVG(Sales),2) AS Sales,
+  ROUND((AVG(Profit)*100)/AVG(Sales),2) AS Profit_Sales
+FROM
+  `project-437106.retail_sales.Orders`
+JOIN `project-437106.retail_sales.Products` USING (ProductID)
+JOIN `project-437106.retail_sales.Categories` USING (CategoryID)
+WHERE Profit<(Sales*0.05)
+GROUP BY 1,2,3
+ORDER BY 1
+
+-------------------------------------------------------------------------------------------------
+/*Top discount products*/
+SELECT
+  ProductID,
+  Product,
+  Category,
+  FORMAT("%'d",CAST(AVG(Discount) AS INT)) AS Average_discount
+FROM
+  `project-437106.retail_sales.Orders`
+JOIN `project-437106.retail_sales.Products` USING (ProductID)
+JOIN `project-437106.retail_sales.Categories` USING (CategoryID)
+GROUP BY 1, 2, 3
+ORDER BY AVG(Discount) DESC
+
+-------------------------------------------------------------------------------------------------
